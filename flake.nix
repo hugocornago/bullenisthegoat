@@ -1,29 +1,30 @@
 {
   inputs = {
-    flake-utils.url = "github:numtide/flake-utils";
+    flake-parts.url = "github:hercules-ci/flake-parts";
     naersk.url = "github:nix-community/naersk";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
   };
 
-  outputs = { self, flake-utils, naersk, nixpkgs }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = (import nixpkgs) {
-          inherit system;
-        };
+  outputs = inputs @{ flake-parts, ... }:
+    flake-parts.lib.mkFlake {inherit inputs;}
+		{
+			imports = [ flake-parts.flakeModules.easyOverlay ];
+			systems = ["x86_64-linux" "x86_64-darwin"];
+			perSystem = {pkgs,config,...}: 
+			let
+				naersk' = pkgs.callPackage inputs.naersk {};
+			in{
+				overlayAttrs = {
+					inherit (config.packages) bullen-server;
+				};
 
-        naersk' = pkgs.callPackage naersk {};
-
-      in rec {
-        # For `nix build` & `nix run`:
-        defaultPackage = naersk'.buildPackage {
+        packages.bullen-server = naersk'.buildPackage {
           src = ./.;
         };
 
-        # For `nix develop`:
-        devShell = pkgs.mkShell {
+        devShells.default = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [ rustc cargo rust-analyzer ];
         };
-      }
-    );
+			};
+		};
 }

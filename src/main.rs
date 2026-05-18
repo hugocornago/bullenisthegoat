@@ -1,13 +1,13 @@
-use std::sync::{Arc, Mutex};
+use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
+use log::{error, info, warn};
+use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use warp::ws::{Message, WebSocket};
-use warp::Filter;
-use futures::{FutureExt, StreamExt};
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use log::{info, error, warn};
+use warp::Filter;
+use warp::ws::{Message, WebSocket};
 
 // Client connection state
 type ConnectionWrapper = Arc<Mutex<Vec<Connection>>>;
@@ -17,27 +17,27 @@ struct ClientMessage {
     #[serde(rename = "type")]
     kind: Option<String>,
     #[serde(default)]
-    data: Option<String>
+    data: Option<String>,
 }
 
 #[derive(PartialEq)]
 enum ConnectionKind {
     Server,
     Client,
-    Unknown
+    Unknown,
 }
 
 struct Connection {
     id: Uuid,
     tx: mpsc::UnboundedSender<Result<Message, warp::Error>>,
-    kind: ConnectionKind
+    kind: ConnectionKind,
 }
 
 #[tokio::main]
 async fn main() {
     // Initialize logger
     env_logger::init();
-    
+
     info!("Starting WebSocket server");
 
     // Shared state for client connections
@@ -50,7 +50,7 @@ async fn main() {
         .map(|ws: warp::ws::Ws, connections| {
             ws.on_upgrade(move |socket| handle_connection(socket, connections))
         });
-    
+
     // Health check route
     let health_route = warp::path("health").map(|| "OK");
 
@@ -63,7 +63,9 @@ async fn main() {
     warp::serve(routes).run(([0, 0, 0, 0], port)).await;
 }
 
-fn with_clients(connections: ConnectionWrapper) -> impl Filter<Extract = (ConnectionWrapper,), Error = std::convert::Infallible> + Clone {
+fn with_clients(
+    connections: ConnectionWrapper,
+) -> impl Filter<Extract = (ConnectionWrapper,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || connections.clone())
 }
 //
@@ -85,7 +87,7 @@ async fn handle_connection(ws: WebSocket, connections: ConnectionWrapper) {
     let connection = Connection {
         id: client_id,
         tx: tx.clone(),
-        kind: ConnectionKind::Unknown
+        kind: ConnectionKind::Unknown,
     };
 
     connections.lock().unwrap().push(connection);
@@ -96,7 +98,8 @@ async fn handle_connection(ws: WebSocket, connections: ConnectionWrapper) {
             Ok(msg) => {
                 if msg.is_text() {
                     info!("message recieved: {}", msg.to_str().unwrap());
-                    process_message(msg.to_str().unwrap_or_default(), client_id, &connections).await;
+                    process_message(msg.to_str().unwrap_or_default(), client_id, &connections)
+                        .await;
                 }
             }
             Err(e) => {
@@ -119,7 +122,10 @@ async fn process_message(message: &str, connection_id: Uuid, connections: &Conne
             if let Some(kind) = msg.kind {
                 match kind.as_str() {
                     "connect" => {
-                        let connection = lock.iter_mut().find(|conn| conn.id == connection_id).unwrap();
+                        let connection = lock
+                            .iter_mut()
+                            .find(|conn| conn.id == connection_id)
+                            .unwrap();
                         if let Some(who) = msg.data {
                             match who.to_lowercase().as_str() {
                                 "server" => connection.kind = ConnectionKind::Server,
@@ -127,24 +133,25 @@ async fn process_message(message: &str, connection_id: Uuid, connections: &Conne
                                 _ => {}
                             }
                         }
-                    },
+                    }
                     "message" => {
                         if let Some(message) = msg.data {
-                            lock.iter().filter(|conn| conn.kind == ConnectionKind::Server)
+                            lock.iter()
+                                .filter(|conn| conn.kind == ConnectionKind::Server)
                                 .map(|conn| &conn.tx)
                                 .for_each(|tx| {
                                     let mut message = message.clone();
-                                     
+
                                     if let Some((name, body)) = message.split(" > ").next_tuple() {
                                         if name == "Suzzzi" && rand::random_bool(1.0 / 25.0) {
                                             message = format!("Sushi > {body}")
                                         }
                                     }
 
-                                    tx.send(Ok(Message::text(message))).unwrap(); 
-                                } );
+                                    tx.send(Ok(Message::text(message))).unwrap();
+                                });
                         }
-                    },
+                    }
                     _ => {}
                 }
             }

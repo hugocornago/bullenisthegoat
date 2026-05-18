@@ -23,7 +23,7 @@
         };
 
         devShells.default = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [ rustc cargo rust-analyzer ];
+          nativeBuildInputs = with pkgs; [ rustc cargo rust-analyzer rustfmt ];
         };
 			};
 		};

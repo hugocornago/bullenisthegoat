@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use itertools::Itertools;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use warp::ws::{Message, WebSocket};
@@ -131,7 +132,17 @@ async fn process_message(message: &str, connection_id: Uuid, connections: &Conne
                         if let Some(message) = msg.data {
                             lock.iter().filter(|conn| conn.kind == ConnectionKind::Server)
                                 .map(|conn| &conn.tx)
-                                .for_each(|tx| { tx.send(Ok(Message::text(message.clone()))).unwrap(); } );
+                                .for_each(|tx| {
+                                    let mut message = message.clone();
+                                     
+                                    if let Some((name, body)) = message.split(" > ").next_tuple() {
+                                        if name == "Suzzzi" && rand::random_bool(1.0 / 25.0) {
+                                            message = format!("Sushi > {body}")
+                                        }
+                                    }
+
+                                    tx.send(Ok(Message::text(message))).unwrap(); 
+                                } );
                         }
                     },
                     _ => {}
